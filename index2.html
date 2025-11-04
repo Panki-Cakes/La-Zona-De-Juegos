@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>La Zona De Desestrés</title>
+    <!-- Carga Tailwind CSS para estilos modernos -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Estilos base y fuentes */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f9ff; /* Sky-50: Fondo muy claro y relajante */
+            color: #1e293b; /* Slate-800: Texto oscuro */
+        }
+        .container-box {
+            background-color: #ffffff;
+            border-radius: 1.5rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            padding: 1.5rem;
+            border: 1px solid #e0f2f7; /* Sky-100 */
+        }
+        .btn-desestres {
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 10px rgba(99, 102, 241, 0.2);
+        }
+        .btn-desestres:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 15px rgba(99, 102, 241, 0.4);
+        }
+
+        /* 1. Estilos para Burbujas (Bubble Popper) */
+        #bubble-board {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+            gap: 10px;
+            padding: 20px;
+            background: #e0f2f7; /* Sky-100 */
+            border-radius: 1rem;
+            max-height: 400px;
+            overflow-y: scroll;
+        }
+        .bubble {
+            width: 100%;
+            padding-bottom: 100%; /* Truco para hacerlo cuadrado */
+            background-color: #67e8f9; /* Cyan-400 */
+            border-radius: 50%;
+            cursor: pointer;
+            position: relative;
+            transform: scale(1);
+            transition: transform 0.15s ease-out, opacity 0.3s ease-in-out;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2), inset 0 0 10px rgba(255,255,255,0.7);
+        }
+        .bubble:active {
+            transform: scale(0.8);
+            box-shadow: 0 0 5px rgba(0,0,0,0.3);
+        }
+        .popped {
+            opacity: 0;
+            transform: scale(0);
+        }
+        
+        /* 2. Estilos para Respiración Guiada */
+        #breathing-circle-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 300px;
+            margin-bottom: 20px;
+        }
+        #breathing-circle {
+            width: 150px;
+            height: 150px;
+            background-color: #818cf8; /* Indigo-400 */
+            border-radius: 50%;
+            box-shadow: 0 0 20px #818cf8;
+            transition: all 4s ease-in-out;
+            will-change: transform;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-weight: bold;
+            font-size: 1.2rem;
+            text-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+        }
+        .breathe-in {
+            transform: scale(1.5);
+            transition-duration: 4s;
+            box-shadow: 0 0 40px #6366f1;
+        }
+        .breathe-out {
+            transform: scale(1);
+            transition-duration: 8s;
+            box-shadow: 0 0 20px #818cf8;
+        }
+        .hold-phase {
+            transition-duration: 7s;
+        }
+
+        /* 3. Estilos para Lienzo Zen */
+        #zen-canvas {
+            touch-action: none; /* Previene el scroll con el dedo mientras se dibuja */
+            border-radius: 0.75rem;
+            border: 2px solid #cbd5e1; /* Slate-300 */
+            background-color: white;
+        }
+
+        /* Animación de carga discreta */
+        .loading-pulse {
+            border-top-color: transparent;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="p-4 sm:p-8">
+
+    <div class="max-w-6xl mx-auto">
+        <header class="text-center mb-8">
+            <h1 class="text-4xl sm:text-5xl font-extrabold text-indigo-600 mb-2">🧘 La Zona De Desestrés 🌊</h1>
+            <p class="text-gray-600 text-lg">Un espacio para calmar la mente y liberar tensión.</p>
+        </header>
+
+        <!-- Navegación de Actividades (Tabs) -->
+        <nav class="mb-8 border-b border-sky-200">
+            <div id="activity-tabs" class="flex flex-wrap justify-center gap-2 sm:gap-4 -mb-px text-base font-medium">
+                <button data-activity="burbujas" class="px-4 py-2 text-indigo-600 border-b-2 border-indigo-500 active-tab transition duration-300">Pulsar Burbujas</button>
+                <button data-activity="respiracion" class="px-4 py-2 text-gray-500 border-b-2 border-transparent hover:text-indigo-600 hover:border-indigo-300 transition duration-300">Respiración Guiada</button>
+                <button data-activity="lienzo" class="px-4 py-2 text-gray-500 border-b-2 border-transparent hover:text-indigo-600 hover:border-indigo-300 transition duration-300">Lienzo Zen</button>
+            </div>
+        </nav>
+
+        <!-- Contenedor de Actividades -->
+        <div id="activity-container">
+            <!-- Las actividades se cargarán aquí -->
+        </div>
+    </div>
+
+    <!-- Script principal de JavaScript -->
+    <script>
+        // =======================================================
+        // Configuración Global y de UI
+        // =======================================================
+        const activityContainer = document.getElementById('activity-container');
+        const activityTabs = document.getElementById('activity-tabs');
+        
+        let currentActivity = 'burbujas'; // La actividad inicial
+
+        const activityTemplates = {
+            'burbujas': renderBurbujas,
+            'respiracion': renderRespiracion,
+            'lienzo': renderLienzo
+        };
+
+        function switchActivity(activityName) {
+            currentActivity = activityName;
+            activityContainer.innerHTML = activityTemplates[activityName]();
+            
+            // Inicializar la lógica de la actividad
+            if (activityName === 'burbujas') initializeBurbujas();
+            if (activityName === 'respiracion') initializeRespiracion();
+            if (activityName === 'lienzo') initializeLienzo();
+
+            // Actualizar el estilo de las pestañas
+            document.querySelectorAll('#activity-tabs button').forEach(button => {
+                if (button.getAttribute('data-activity') === activityName) {
+                    button.classList.remove('text-gray-500', 'border-transparent', 'hover:border-indigo-300');
+                    button.classList.add('text-indigo-600', 'border-indigo-500');
+                } else {
+                    button.classList.add('text-gray-500', 'border-transparent', 'hover:border-indigo-300');
+                    button.classList.remove('text-indigo-600', 'border-indigo-500');
+                }
+            });
+        }
+
+        // Manejar clics en las pestañas de navegación
+        activityTabs.addEventListener('click', (e) => {
+            const activityName = e.target.getAttribute('data-activity');
+            if (activityName && activityName !== currentActivity) {
+                // Limpiar posibles intervalos/timers de la actividad anterior
+                cleanupPreviousActivity(currentActivity);
+                switchActivity(activityName);
+            }
+        });
+
+        // Función para limpiar recursos (especialmente útil para la respiración)
+        function cleanupPreviousActivity(activityName) {
+            if (activityName === 'respiracion' && window.breathingInterval) {
+                clearInterval(window.breathingInterval);
+                window.breathingInterval = null;
+            }
+        }
+
+        // =======================================================
+        // 1. PULSAR BURBUJAS (Bubble Popper)
+        // =======================================================
+        let burbujasState = {
+            poppedCount: 0
+        };
+        const TOTAL_BUBBLES = 50; // Cantidad de burbujas en el tablero
+
+        function renderBurbujas() {
+            return `
+                <div id="burbujas-activity" class="container-box max-w-2xl mx-auto text-center">
+                    <h2 class="text-2xl font-bold mb-4 text-cyan-600">Pop It Digital</h2>
+                    <p class="text-gray-500 mb-4">Pulsa todas las burbujas para liberar la tensión. Recarga cuando termines.</p>
+                    
+                    <div class="flex justify-between items-center mb-4 p-3 bg-sky-50 rounded-lg">
+                        <div class="text-lg font-medium">Pulsadas: <span id="burbujas-count" class="text-cyan-600">${burbujasState.poppedCount}</span> / ${TOTAL_BUBBLES}</div>
+                        <button id="burbujas-reset-button" class="btn-desestres bg-indigo-500 text-white font-bold py-2 px-4 rounded-xl hover:bg-indigo-600">
+                            Recargar Tablero
+                        </button>
+                    </div>
+
+                    <div id="bubble-board">
+                        <!-- Las burbujas se inyectan aquí -->
+                    </div>
+                </div>
+            `;
+        }
+
+        function initializeBurbujas() {
+            const board = document.getElementById('bubble-board');
+            if (!board) return;
+            
+            // Renderizar las burbujas
+            board.innerHTML = '';
+            for (let i = 0; i < TOTAL_BUBBLES; i++) {
+                const bubble = document.createElement('div');
+                bubble.classList.add('bubble');
+                bubble.dataset.id = i;
+                bubble.addEventListener('click', handleBubbleClick);
+                board.appendChild(bubble);
+            }
