@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arcade de Juegos - Compatible con Trinket</title>
+    <!-- Carga Tailwind CSS para estilos modernos -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Estilos base y variables de color */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a; /* Slate-900: Fondo oscuro */
+            color: #f8fafc; /* Texto claro */
+        }
+        .container-box {
+            background-color: #1e293b; /* Slate-800: Fondo de las tarjetas de juego */
+            border-radius: 1.5rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+            padding: 1.5rem;
+        }
+        .btn-game {
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 10px rgba(79, 70, 229, 0.4);
+        }
+        .btn-game:hover:not(:disabled) {
+            transform: translateY(-1px);
+            opacity: 0.9;
+        }
+        .loading-pulse {
+            border-top-color: transparent;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Estilos específicos para Simon */
+        .simon-sphere {
+            border-radius: 50%;
+            cursor: pointer;
+            transition: box-shadow 0.1s;
+        }
+        .lit {
+            box-shadow: 0 0 40px 10px rgba(255, 255, 255, 0.8), 0 0 25px 5px var(--sphere-color);
+        }
+
+        /* Estilos específicos para Contraseña Game */
+        #password-display {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-size: 0.75rem;
+            line-height: 1rem;
+            height: 15rem;
+            overflow-y: scroll;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+        #password-display::-webkit-scrollbar {
+            display: none;
+        }
+        
+        /* Estilo para el botón del Tralalerito */
+        #tralalerito-button {
+            background: #f97316; /* Naranja 600 */
+            width: 150px;
+            height: 150px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 0 20px rgba(249, 115, 22, 0.8);
+            transition: transform 0.1s;
+            cursor: pointer;
+            user-select: none;
+            overflow: hidden;
+            border: 4px solid #fff;
+        }
+        #tralalerito-button:active {
+            transform: scale(0.95);
+        }
+    </style>
+</head>
+<body class="p-4 sm:p-8">
+
+    <div class="max-w-7xl mx-auto">
+        <header class="text-center mb-8">
+            <h1 class="text-5xl font-extrabold text-indigo-400 mb-2">¡La Zona de Juegos!</h1>
+            <p class="text-indigo-300 text-lg">Desafíos de memoria, fortuna, lógica y Crítica de IA.</p>
+        </header>
+
+        <!-- Navegación de Juegos (Tabs) -->
+        <nav class="mb-8 border-b border-slate-700">
+            <div id="game-tabs" class="flex flex-wrap justify-center gap-2 sm:gap-4 -mb-px text-sm font-medium">
+                <button data-game="simon" class="px-4 py-2 text-indigo-300 border-b-2 border-transparent hover:text-indigo-400 hover:border-indigo-400 active-tab transition duration-300">Simon!</button>
+                <button data-game="billion" class="px-4 py-2 text-slate-300 border-b-2 border-transparent hover:text-indigo-400 hover:border-indigo-400 transition duration-300">10 Billones de Dólares</button>
+                <button data-game="password" class="px-4 py-2 text-slate-300 border-b-2 border-transparent hover:text-indigo-400 hover:border-indigo-400 transition duration-300">Password Game</button>
+                <button data-game="scratch" class="px-4 py-2 text-slate-300 border-b-2 border-transparent hover:text-indigo-400 hover:border-indigo-400 transition duration-300">Crítico de Scratch (IA)</button>
+                <button data-game="clicker" class="px-4 py-2 text-slate-300 border-b-2 border-transparent hover:text-indigo-400 hover:border-indigo-400 transition duration-300">Clicker del Tralalerito</button>
+            </div>
+        </nav>
+
+        <!-- Contenedor de Juegos -->
+        <div id="game-container">
+            <!-- Los juegos se cargarán aquí -->
+        </div>
+    </div>
+
+    <!-- Script principal de JavaScript -->
+    <script>
+        // =======================================================
+        // Configuración Global y de API
+        // =======================================================
+        const API_MODEL = "gemini-2.5-flash-preview-09-2025";
+        
+        // La clave API proporcionada por el usuario
+        const API_KEY = "AIzaSyChhiFxzz6I2tiehsHQx-V0vFU6uo8B2Ck"; 
+        
+        const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${API_MODEL}:generateContent?key=${API_KEY}`;
+        
+        const gameContainer = document.getElementById('game-container');
+        const gameTabs = document.getElementById('game-tabs');
+        
+        // *** RUTA DE IMAGEN ACTUALIZADA CON LA IMAGEN SUBIDA POR EL USUARIO ***
+        // Usamos la URL del asset subido para el Tralalerito.
+        const TRALALERITO_IMAGE_URL = "uploaded:image_c7e68b.png-f9da6c01-a928-43fc-b2ee-d0bae69bd9c9"; 
+
+        let currentGame = 'simon'; // El juego inicial
+
+        // Función de utilidad para llamadas a la API (incluye backoff)
+        async function makeApiCall(payload, retryCount = 0) {
+            // Si la API_KEY está vacía, no intenta la llamada y devuelve un error claro.
+            if (!API_KEY) {
+                throw new Error("Clave API de Gemini faltante. Por favor, añádela en la línea 79 del código.");
+            }
+            
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) throw new Error(`Error HTTP: ${response.status}`);
+                const result = await response.json();
+                
+                const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                
+                if (payload.generationConfig && payload.generationConfig.responseMimeType === "application/json") {
+                     return JSON.parse(text);
+                }
+
+                if (!text) throw new Error("Respuesta de la IA vacía.");
+                return text;
+
+            } catch (error) {
+                if (retryCount < 3) {
+                    const delay = Math.pow(2, retryCount) * 1000;
+                    console.warn(`Error API. Reintentando en ${delay / 1000}s...`, error);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    return makeApiCall(payload, retryCount + 1);
+                } else {
+                    console.error("Fallo definitivo de la API:", error);
+                    throw new Error("Fallo en la conexión. Asegúrate de que la clave API es correcta.");
+                }
+            }
+        }
+
+        // =======================================================
+        // Lógica de Renderizado y Navegación
+        // =======================================================
+
+        const gameTemplates = {
+            'simon': renderSimon,
+            'billion': renderBillion,
+            'password': renderPassword,
+            'scratch': renderScratchCritic,
+            'clicker': renderClicker
+        };
+
+        function switchGame(gameName) {
+            currentGame = gameName;
+            gameContainer.innerHTML = gameTemplates[gameName]();
+            
+            // Inicializar la lógica del juego
+            if (gameName === 'simon') initializeSimon();
+            if (gameName === 'billion') initializeBillion();
+            if (gameName === 'password') initializePassword();
+            if (gameName === 'scratch') initializeScratchCritic();
+            if (gameName === 'clicker') initializeClicker();
+
+            // Actualizar el estilo de las pestañas
+            document.querySelectorAll('#game-tabs button').forEach(button => {
+                if (button.getAttribute('data-game') === gameName) {
+                    button.classList.remove('text-slate-300');
+                    button.classList.add('text-indigo-300', 'border-indigo-400');
+                } else {
+                    button.classList.add('text-slate-300');
+                    button.classList.remove('text-indigo-300', 'border-indigo-400');
+                }
+            });
+        }
+
+        // Manejar clics en las pestañas de navegación
+        gameTabs.addEventListener('click', (e) => {
+            const gameName = e.target.getAttribute('data-game');
+            if (gameName && gameName !== currentGame) {
+                switchGame(gameName);
+            }
+        });
+
+        // =======================================================
+        // 1. SIMON! (Memory Game)
+        // =======================================================
+        let simonState = {
+            sequence: [],
+            playerSequence: [],
+            level: 1,
+            isGameRunning: false
+        };
+        const SIMON_SPHERES = ['red', 'blue', 'green', 'yellow'];
+        let isPlayerTurn = false;
+
+        function renderSimon() {
+            return `
+                <div id="simon-game" class="container-box max-w-xl mx-auto text-center">
+                    <h2 class="text-2xl font-bold mb-4 text-indigo-300">Simon! (El Desafío de Memoria)</h2>
+                    <p class="text-gray-400 mb-6">Repite la secuencia de colores para subir de nivel.</p>
+                    
+                    <div class="flex justify-around items-center mb-6">
+                        <div class="text-xl font-medium">Nivel: <span id="simon-level" class="text-indigo-400">${simonState.level}</span></div>
+                        <button id="simon-start-button" class="btn-game bg-indigo-600 text-white font-bold py-2 px-6 rounded-xl hover:bg-indigo-700 disabled:opacity-50">
+                            Iniciar Juego
+                        </button>
+                    </div>
+
+                    <div id="simon-status" class="mb-4 text-yellow-400">Listo para empezar.</div>
+
+                    <div id="simon-board" class="flex justify-center space-x-4 mb-4">
+                        ${SIMON_SPHERES.map(color => `
+                            <div id="simon-${color}" 
+                                 class="simon-sphere w-20 h-20 sm:w-24 sm:h-24" 
+                                 style="background-color: ${color}; --sphere-color: ${color};" 
+                                 data-color="${color}">
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        function initializeSimon() {
+            const startButton = document.getElementById('simon-start-button');
+            startButton.addEventListener('click', startGameSimon);
+            document.getElementById('simon-board').addEventListener('click', handlePlayerClickSimon);
+            updateSimonUI();
+        }
+        
+        function updateSimonUI() {
+            document.getElementById('simon-level').textContent = simonState.level;
+            const statusDiv = document.getElementById('simon-status');
+            const startButton = document.getElementById('simon-start-button');
+
+            if (simonState.isGameRunning) {
+                startButton.disabled = true;
+                if (isPlayerTurn) {
+                    statusDiv.textContent = `¡TU TURNO! (Click: ${simonState.playerSequence.length + 1} de ${simonState.sequence.length})`;
+                    statusDiv.classList.remove('text-indigo-400');
+                    statusDiv.classList.add('text-green-400');
+                } else {
+                    statusDiv.textContent = 'Observando la secuencia...';
+                    statusDiv.classList.remove('text-green-400');
+                    statusDiv.classList.add('text-indigo-400');
+                }
+            } else {
+                startButton.disabled = false;
+                statusDiv.classList.remove('text-green-400', 'text-red-400');
+                statusDiv.classList.add('text-yellow-400');
+            }
+        }
+
+        async function startGameSimon() {
+            if (simonState.isGameRunning) return;
+            simonState.isGameRunning = true;
+            simonState.level = 1;
+            simonState.sequence = [];
+            
+            updateSimonUI();
+            await nextRoundSimon();
+        }
+
+        async function nextRoundSimon() {
+            isPlayerTurn = false;
+            simonState.playerSequence = [];
+            
+            const nextColorIndex = Math.floor(Math.random() * SIMON_SPHERES.length);
+            simonState.sequence.push(SIMON_SPHERES[nextColorIndex]);
+            
+            updateSimonUI();
+
+            await new Promise(resolve => setTimeout(resolve, 800));
+            for (const color of simonState.sequence) {
+                const sphere = document.getElementById(`simon-${color}`);
+                sphere.classList.add('lit');
+                await new Promise(resolve => setTimeout(resolve, 400));
+                sphere.classList.remove('lit');
+                await new Promise(resolve => setTimeout(resolve, 200));
+            }
+
+            isPlayerTurn = true;
+            updateSimonUI();
+        }
+
+        function handlePlayerClickSimon(e) {
+            if (!isPlayerTurn || !e.target.dataset.color) return;
+
+            const clickedColor = e.target.dataset.color;
+            const sphere = document.getElementById(`simon-${clickedColor}`);
+            simonState.playerSequence.push(clickedColor);
+
+            sphere.classList.add('lit');
+            setTimeout(() => sphere.classList.remove('lit'), 100);
+
+            const expectedColor = simonState.sequence[simonState.playerSequence.length - 1];
+
+            if (clickedColor === expectedColor) {
+                if (simonState.playerSequence.length === simonState.sequence.length) {
+                    simonState.level++;
+                    document.getElementById('simon-status').textContent = `¡Nivel ${simonState.level - 1} Superado! Preparando Nivel ${simonState.level}...`;
+                    nextRoundSimon();
+                } else {
+                    updateSimonUI();
+                }
+            } else {
+                simonState.isGameRunning = false;
+                isPlayerTurn = false;
+                document.getElementById('simon-status').textContent = `¡Perdiste! Nivel alcanzado: ${simonState.level}. Presiona 'Iniciar Juego' para empezar.`;
+                document.getElementById('simon-status').classList.remove('text-green-400');
+                document.getElementById('simon-status').classList.add('text-red-400');
+                updateSimonUI();
+            }
+        }
+        // =======================================================
+        // 2. 10 BILLONES DE DÓLARES (Purchase Game)
+        // =======================================================
+        let billionState = {
+            balance: 10000000000, // 10 Billones (10^10)
+            items: [
+                { id: 'chocolate', name: 'Chocolate Mr. Beast', price: 2, count: 0 },
+                { id: 'banana', name: 'Banana para Escala', price: 10, count: 0 },
+                { id: 'car', name: 'Lamborghini Aventador', price: 500000, count: 0 },
+                { id: 'house', name: 'Mansión de Lujo', price: 50000000, count: 0 },
+                { id: 'island', name: 'Isla Privada (Maldivas)', price: 250000000, count: 0 },
+                { id: 'rocket', name: 'Cohete Espacial (Simulado)', price: 5000000000, count: 0 },
+                { id: 'earth', name: 'Replica de la Tierra (1:100)', price: 8000000000, count: 0 },
+                { id: 'universe', name: 'Universo LEGO (Ficticio)', price: 10000000000, count: 0 },
+            ]
+        };
+
+        function formatCurrency(amount) {
+            return new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }).format(amount);
+        }
+
+        function renderBillion() {
+            return `
+                <div id="billion-game" class="container-box max-w-4xl mx-auto">
+                    <h2 class="text-2xl font-bold mb-4 text-indigo-300">10 Billones de Dólares: Gástalo Todo</h2>
+                    <p class="text-gray-400 mb-6">Tu misión: Gasta cada dólar. ¡Tienes 10,000,000,000 USD!</p>
+                    
+                    <div class="p-4 mb-6 bg-slate-700 rounded-xl flex justify-between items-center shadow-lg">
+                        <span class="text-lg sm:text-2xl font-semibold">Balance Restante:</span>
+                        <span id="billion-balance" class="text-2xl sm:text-4xl font-extrabold text-green-400">
+                            ${formatCurrency(billionState.balance)}
+                        </span>
+                    </div>
+
+                    <div id="billion-item-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                        <!-- Items se renderizan aquí por JS -->
+                    </div>
+
+                    <div id="billion-win-message" class="hidden mt-6 p-4 bg-green-800 text-white rounded-xl text-center font-bold">
+                        ¡Misión Cumplida! ¡Lo has gastado todo (o casi todo)! Eres libre.
+                    </div>
+                </div>
+            `;
+        }
+
+        function initializeBillion() {
+            renderBillionItems();
+        }
+
+        function renderBillionItems() {
+            const itemList = document.getElementById('billion-item-list');
+            if (!itemList) return;
+            itemList.innerHTML = billionState.items.map(item => `
+                <div class="bg-slate-700 p-4 rounded-xl flex flex-col justify-between shadow-xl">
+                    <div>
+                        <img src="${getBillionItemImage(item.id)}" alt="${item.name}" class="w-full h-24 object-cover mb-3 rounded-lg">
+                        <h3 class="text-lg font-semibold text-indigo-300">${item.name}</h3>
+                        <p class="text-sm text-gray-400 mb-2">Precio: ${formatCurrency(item.price)}</p>
+                        <p class="text-sm font-bold text-white">Tienes: <span id="count-${item.id}">${item.count}</span></p>
+                    </div>
+                    <button onclick="buyBillionItem('${item.id}')" 
+                            class="btn-game mt-3 bg-blue-600 text-white py-2 rounded-lg disabled:opacity-50 hover:bg-blue-700"
+                            id="buy-btn-${item.id}"
+                            ${billionState.balance < item.price ? 'disabled' : ''}>
+                        Comprar 1
+                    </button>
+                </div>
+            `).join('');
+        }
+        
+        function getBillionItemImage(id) {
+            const base = "https://placehold.co/600x400/";
+            switch (id) {
+                case 'chocolate': return base + 'b5470b/ffffff?text=CHOCOLATE';
+                case 'banana': return base + 'ffcf33/000000?text=BANANA';
+                case 'car': return base + 'f05353/ffffff?text=LAMBO';
+                case 'house': return base + '34d399/ffffff?text=MANSION';
+                case 'island': return base + '0ea5e9/ffffff?text=ISLA';
+                case 'rocket': return base + '7c3aed/ffffff?text=COHETE';
+                case 'earth': return base + '0d9488/ffffff?text=REPLICA';
+                case 'universe': return base + '251d45/ffffff?text=UNIVERSO';
+                default: return base + '334155/ffffff?text=ITEM';
+            }
+        }
+
+        window.buyBillionItem = function(itemId) {
+            const item = billionState.items.find(i => i.id === itemId);
+            if (!item || billionState.balance < item.price) return;
+
+            billionState.balance -= item.price;
+            item.count++;
+
+            document.getElementById('billion-balance').textContent = formatCurrency(billionState.balance);
+            document.getElementById(`count-${itemId}`).textContent = item.count;
+            
+            billionState.items.forEach(i => {
+                const button = document.getElementById(`buy-btn-${i.id}`);
+                if (button) {
+                    button.disabled = billionState.balance < i.price;
+                }
+            });
+
+            if (billionState.balance <= 10) {
+                document.getElementById('billion-win-message').classList.remove('hidden');
+            }
+        }
+
+        // =======================================================
+        // 3. PASSWORD GAME (Lógica)
+        // =======================================================
+        let passwordGameState = {
+            currentDisplay: generateGibberish(1000),
+            availablePassword: generateRandomPassword(12),
+            attempts: 0,
+            found: false
+        };
+
+        const PASSWORD_HINT = "Debe ser exactamente 12 caracteres, contener 'G4m3', y el 7mo carácter debe ser 'Z'. ¡Pero tiene que estar DISPONIBLE!";
+
+        function generateGibberish(length) {
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()';
+            let result = '';
+            for (let i = 0; i < length; i++) {
+                result += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            return result;
+        }
+
+        function generateRandomPassword(length) {
+             const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+             let password = '';
+             // Aseguramos que la contraseña DISPONIBLE cumpla las reglas, para que sea encontrable.
+             let tempPassword = 'G4m3'; // Parte 1
+             let filler = '';
+             for (let i = 0; i < 2; i++) { // 4 + 2 = 6 caracteres
+                 filler += chars.charAt(Math.floor(Math.random() * chars.length));
+             }
+             tempPassword += filler;
+             tempPassword += 'Z'; // Carácter 7
+             for (let i = 0; i < 5; i++) { // 7 + 5 = 12 caracteres
+                 filler += chars.charAt(Math.floor(Math.random() * chars.length));
+             }
+             password = tempPassword.slice(0, 12); // Asegura exactamente 12
+             return password;
+         }
+
+
+        function checkPassword(password) {
+            const is12Chars = password.length === 12;
+            const hasG4m3 = password.includes('G4m3');
+            // Nota: el índice 6 es el séptimo carácter (0, 1, 2, 3, 4, 5, 6)
+            const seventhIsZ = password.length >= 7 && password[6] === 'Z'; 
+            
+            const matchesRules = is12Chars && hasG4m3 && seventhIsZ;
+
+            if (matchesRules) {
+                if (password === passwordGameState.availablePassword) {
+                    return { success: true, message: `¡INCREÍBLE! Encontraste la contraseña DISPONIBLE: ${password}` };
+                } else {
+                    return { success: false, message: `CUMPLISTE TODAS las reglas, pero la contraseña ${password} ya está TOMADA.` };
+                }
+            } else {
+                return { success: false, message: `Contraseña ${password} no cumple las reglas básicas. Pista: ${PASSWORD_HINT}` };
+            }
+        }
+
+        function renderPassword() {
+            return `
+                <div id="password-game" class="container-box max-w-4xl mx-auto">
+                    <h2 class="text-2xl font-bold mb-4 text-indigo-300">El Juego de las Contraseñas (MUY DIFÍCIL)</h2>
+                    <p class="text-gray-400 mb-2">Busca la única contraseña que cumpla las reglas Y esté "Disponible". ¡Buena Suerte!</p>
+                    <p class="text-sm text-yellow-400 mb-4 font-semibold">Pista: ${PASSWORD_HINT}</p>
+
+                    <div class="flex space-x-2 mb-4">
+                        <input type="text" id="password-input" placeholder="Introduce una contraseña..." class="flex-grow p-3 bg-slate-600 border border-slate-500 rounded-lg text-white focus:ring-indigo-500 focus:border-indigo-500">
+                        <button id="password-try-button" class="btn-game bg-indigo-600 text-white font-bold py-3 px-6 rounded-xl hover:bg-indigo-700">Intentar</button>
+                    </div>
+
+                    <div class="p-4 bg-slate-700 rounded-xl mb-4">
+                        <h3 class="text-lg font-semibold text-red-400 mb-2">Contraseñas en Uso: (NO DISPONIBLE)</h3>
+                        <div id="password-display" class="text-gray-400">
+                            <!-- Aquí se inyecta el gibberish -->
+                        </div>
+                    </div>
+                    
+                    <div class="flex justify-between items-center mt-4">
+                        <div class="text-lg font-semibold">Intentos: <span id="password-attempts">${passwordGameState.attempts}</span></div>
+                        <div id="password-result" class="text-lg font-semibold text-yellow-400">¡Busca una!</div>
+                    </div>
+                    
+                    <div id="password-win-message" class="hidden mt-6 p-4 bg-green-800 text-white rounded-xl text-center font-bold"></div>
+
+                </div>
+            `;
+        }
+
+        function initializePassword() {
+            // Reiniciar estado y generar nueva contraseña disponible
+            passwordGameState.attempts = 0;
+            passwordGameState.found = false;
+            passwordGameState.availablePassword = generateRandomPassword(12);
+            
+            const display = document.getElementById('password-display');
+            display.textContent = passwordGameState.currentDisplay;
+
+            document.getElementById('password-try-button').addEventListener('click', handlePasswordTry);
+            document.getElementById('password-input').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') handlePasswordTry();
+            });
+
+            console.log(`[DEV]: Contraseña DISPONIBLE real (shhh): ${passwordGameState.availablePassword}`);
+        }
+
+        function handlePasswordTry() {
+            const input = document.getElementById('password-input');
+            const resultDiv = document.getElementById('password-result');
+            const attemptsDiv = document.getElementById('password-attempts');
+            const winMessage = document.getElementById('password-win-message');
+            
+            if (passwordGameState.found) return;
+
+            const password = input.value;
+            if (!password) return;
+
+            passwordGameState.attempts++;
+            attemptsDiv.textContent = passwordGameState.attempts;
+
+            const result = checkPassword(password);
+
+            resultDiv.textContent = result.message;
+            resultDiv.classList.remove('text-green-400', 'text-yellow-400', 'text-red-400');
+            
+            if (result.success) {
+                passwordGameState.found = true;
+                resultDiv.classList.add('text-green-400');
+                winMessage.textContent = result.message;
+                winMessage.classList.remove('hidden');
+                document.getElementById('password-try-button').disabled = true;
+            } else {
+                resultDiv.classList.add('text-red-400');
+                passwordGameState.currentDisplay = password + '\n' + passwordGameState.currentDisplay;
+                document.getElementById('password-display').textContent = passwordGameState.currentDisplay;
+            }
+            input.value = '';
+            input.focus();
+        }
+        
+        // =======================================================
+        // 4. CRÍTICO DE SCRATCH (IA Game)
+        // =======================================================
+        let scratchCriticState = {
+            isLoading: false
+        };
+
+        function renderScratchCritic() {
+            return `
+                <div id="scratch-critic-game" class="container-box max-w-xl mx-auto">
+                    <h2 class="text-2xl font-bold mb-4 text-indigo-300">Crítico y Mentor de Scratch (¡IA al Rescate!)</h2>
+                    <p class="text-gray-400 mb-6">Describe tu idea de proyecto y la IA te dará una puntuación y los pasos de implementación.</p>
+
+                    <div class="mb-4">
+                        <label for="scratch-idea" class="block text-sm font-medium text-gray-300 mb-2">Describe tu Idea de Proyecto (máx 200 caracteres)</label>
+                        <textarea id="scratch-idea" rows="3" placeholder="Ej: Un juego donde un gato tiene que comer queso en un laberinto..." 
+                               class="w-full p-3 bg-slate-600 border border-slate-500 rounded-lg text-white focus:ring-indigo-500 focus:border-indigo-500"></textarea>
+                    </div>
+
+                    <button id="scratch-analyze-button" class="btn-game bg-green-600 text-white font-bold py-3 px-6 rounded-xl hover:bg-green-700 w-full flex items-center justify-center disabled:opacity-50">
+                        <span id="scratch-button-text">Evaluar y Obtener Pasos</span>
+                        <div id="scratch-loading" class="hidden loading-pulse w-5 h-5 border-4 border-white rounded-full ml-3"></div>
+                    </button>
+
+                    <div id="scratch-result" class="mt-6 p-4 bg-slate-700 rounded-xl hidden">
+                        <h3 class="text-xl font-semibold text-yellow-400 mb-3">Veredicto y Guía de Implementación:</h3>
+                        <p id="scratch-result-text" class="text-gray-300 whitespace-pre-wrap"></p>
+                    </div>
+                </div>
+            `;
+        }
+
+        function initializeScratchCritic() {
+            document.getElementById('scratch-analyze-button').addEventListener('click', handleScratchAnalysis);
+        }
+
+        async function handleScratchAnalysis() {
+            const ideaInput = document.getElementById('scratch-idea');
+            const ideaText = ideaInput.value.trim();
+            const resultDiv = document.getElementById('scratch-result');
+            const resultText = document.getElementById('scratch-result-text');
+            const button = document.getElementById('scratch-analyze-button');
+            const buttonText = document.getElementById('scratch-button-text');
+            const loadingIcon = document.getElementById('scratch-loading');
+
+            if (ideaText.length < 10) {
+                resultText.textContent = "Por favor, describe tu idea de proyecto con más detalle (mínimo 10 caracteres).";
+                resultDiv.classList.remove('hidden');
+                return;
+            }
+
+            if (scratchCriticState.isLoading) return;
+            scratchCriticState.isLoading = true;
+            
+            button.disabled = true;
+            buttonText.textContent = 'Evaluando Idea...';
+            loadingIcon.classList.remove('hidden');
+            resultDiv.classList.add('hidden');
+            resultText.textContent = '';
+
+
+            const systemPrompt = `Eres un experto en el motor de Scratch y un mentor de programación amigable. Tu tarea es evaluar una idea de proyecto que te dé un usuario y proporcionarle pasos concretos para su implementación.
+            Tu respuesta debe estar dividida en dos secciones:
+            1. **Evaluación y Puntuación:** Dale a la idea un título pegadizo, un resumen de la idea, una puntuación (del 1 al 10) y un breve veredicto (por qué es buena idea y su nivel de complejidad).
+            2. **Pasos de Implementación en Scratch:** Proporciona una lista numerada con los pasos esenciales de codificación. Incluye sugerencias sobre:
+                - Sprites/Fondos necesarios.
+                - Variables clave (ej: 'puntuacion', 'vida').
+                - Bloques de código principales (ej: 'al hacer clic en bandera verde', 'por siempre', 'cambiar disfraz').
+            Responde en español y usa emojis y Markdown para el formato.`;
+            
+            const userQuery = `Evalúa y genera pasos de implementación para la siguiente idea de proyecto de Scratch: ${ideaText}`;
+
+            const payload = {
+                contents: [{ parts: [{ text: userQuery }] }],
+                systemInstruction: { parts: [{ text: systemPrompt }] },
+            };
+
+            try {
+                const critique = await makeApiCall(payload);
+                resultText.textContent = critique;
+                resultDiv.classList.remove('hidden');
+            } catch (error) {
+                // Captura y muestra el error específico (incluyendo el de la clave API faltante)
+                resultText.textContent = `Error: ${error.message}`;
+                resultDiv.classList.remove('hidden');
+            } finally {
+                scratchCriticState.isLoading = false;
+                button.disabled = false;
+                buttonText.textContent = 'Evaluar y Obtener Pasos';
+                loadingIcon.classList.add('hidden');
+            }
+        }
+        
+        // =======================================================
+        // 5. CLICKER DEL TRALALERITO (Clicker Game)
+        // =======================================================
+        let clickerState = {
+            points: 0,
+            ppc: 1, // Cambiado a 1 por defecto para iniciar más lento
+            aps: 0,
+            upgrades: [
+                { id: 'ppc_boost', name: 'Poder de Clic (+10)', baseCost: 50, costMultiplier: 1.5, ppcEffect: 10, apsEffect: 0, level: 0 },
+                { id: 'auto_clicker', name: 'Asistente Clicker (+1 APS)', baseCost: 100, costMultiplier: 1.2, ppcEffect: 0, apsEffect: 1, level: 0 },
+                { id: 'mega_boost', name: 'Mega Clic (+100 PpC)', baseCost: 2000, costMultiplier: 1.8, ppcEffect: 100, apsEffect: 0, level: 0 },
+            ]
+        };
+        
+        function autoClickerLoop() {
+            clickerState.points += clickerState.aps;
+            updateClickerUI();
+        }
+        
+        let intervalId;
+
+        function initializeClicker() {
+            if (intervalId) clearInterval(intervalId);
+
+            intervalId = setInterval(autoClickerLoop, 1000);
+            
+            document.getElementById('tralalerito-button').addEventListener('click', manualClick);
+            
+            updateClickerUI();
+            renderUpgrades();
+        }
+
+        function manualClick() {
+            clickerState.points += clickerState.ppc;
+            updateClickerUI();
+            createFloatingText(clickerState.ppc);
+        }
+
+        function getUpgradeCost(upgrade) {
+            return Math.floor(upgrade.baseCost * Math.pow(upgrade.costMultiplier, upgrade.level));
+        }
+
+        window.buyClickerUpgrade = function(upgradeId) {
+            const upgrade = clickerState.upgrades.find(u => u.id === upgradeId);
+            if (!upgrade) return;
+
+            const cost = getUpgradeCost(upgrade);
+
+            if (clickerState.points >= cost) {
+                clickerState.points -= cost;
+                upgrade.level++;
+                
+                clickerState.ppc += upgrade.ppcEffect;
+                clickerState.aps += upgrade.apsEffect;
+
+                updateClickerUI();
+                renderUpgrades();
+            }
+        }
+        
+        function updateClickerUI() {
+            if (currentGame !== 'clicker') return;
+
+            document.getElementById('clicker-points').textContent = Math.floor(clickerState.points).toLocaleString('es');
+            document.getElementById('clicker-ppc').textContent = clickerState.ppc.toLocaleString('es');
+            document.getElementById('clicker-aps').textContent = clickerState.aps.toLocaleString('es');
+            
+            renderUpgrades();
+        }
+
+        function renderUpgrades() {
+            if (currentGame !== 'clicker') return;
+            const upgradeList = document.getElementById('clicker-upgrade-list');
+
+            upgradeList.innerHTML = clickerState.upgrades.map(upgrade => {
+                const cost = getUpgradeCost(upgrade);
+                const canAfford = clickerState.points >= cost;
+                
+                let effectDetail = '';
+                if (upgrade.ppcEffect > 0) {
+                    effectDetail = `Valor: +${upgrade.ppcEffect} PpC`;
+                } else if (upgrade.apsEffect > 0) {
+                    effectDetail = `Valor: +${upgrade.apsEffect} APS`;
+                }
+
+                return `
+                    <div class="bg-slate-700 p-4 rounded-xl flex justify-between items-center shadow-lg transition duration-200 ${canAfford ? 'border-2 border-green-500' : 'border-2 border-slate-700'}">
+                        <div class="flex-grow">
+                            <h3 class="text-lg font-semibold text-indigo-300">${upgrade.name} (Nivel ${upgrade.level})</h3>
+                            <p class="text-sm text-gray-400">
+                                ${effectDetail}
+                            </p>
+                            <p class="text-md font-bold text-yellow-400 mt-1">
+                                Precio: ${cost.toLocaleString('es')} Puntos
+                            </p>
+                        </div>
+                        <button onclick="buyClickerUpgrade('${upgrade.id}')"
+                                class="btn-game ml-4 bg-green-600 text-white py-2 px-4 rounded-lg disabled:bg-gray-500 disabled:opacity-70 hover:bg-green-700"
+                                ${canAfford ? '' : 'disabled'}>
+                            Comprar
+                        </button>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        function createFloatingText(amount) {
+            const tralaleritoButton = document.getElementById('tralalerito-button');
+            const buttonRect = tralaleritoButton.getBoundingClientRect();
+            
+            const textElement = document.createElement('div');
+            textElement.textContent = `+${amount}`;
+            textElement.style.position = 'absolute';
+            textElement.style.left = `${buttonRect.left + buttonRect.width / 2}px`;
+            textElement.style.top = `${buttonRect.top + buttonRect.height / 2}px`;
+            textElement.style.color = 'yellow';
+            textElement.style.fontSize = '20px';
+            textElement.style.fontWeight = 'bold';
+            textElement.style.pointerEvents = 'none';
+            textElement.style.opacity = '1';
+            textElement.style.transition = 'all 0.8s ease-out';
+            textElement.style.transform = 'translate(-50%, -50%)';
+            textElement.style.zIndex = '1000';
+
+            document.body.appendChild(textElement);
+
+            setTimeout(() => {
+                textElement.style.transform = 'translate(-50%, -150%)';
+                textElement.style.opacity = '0';
+            }, 50);
+
+            setTimeout(() => {
+                textElement.remove();
+            }, 900);
+        }
+
+        function renderClicker() {
+            return `
+                <div id="clicker-game" class="container-box max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    
+                    <!-- Panel Central del Clicker -->
+                    <div class="lg:col-span-1 text-center p-4 bg-slate-700 rounded-xl">
+                        <h2 class="text-3xl font-extrabold mb-4 text-orange-400">El Tralalerito</h2>
+                        
+                        <p class="text-2xl font-medium mb-2">Puntos Totales:</p>
+                        <div class="text-6xl font-black text-white mb-6">
+                            <span id="clicker-points">${Math.floor(clickerState.points).toLocaleString('es')}</span>
+                        </div>
+
+                        <!-- Botón Principal del Clicker -->
+                        <div class="flex justify-center mb-8">
+                            <div id="tralalerito-button">
+                                <img src="${TRALALERITO_IMAGE_URL}" 
+                                     alt="Tralalerito Clicker" 
+                                     class="w-full h-full object-cover p-2 rounded-full"
+                                     onerror="this.onerror=null; this.src='https://placehold.co/150x150/f97316/ffffff?text=CLICKER'">
+                            </div>
+                        </div>
+
+                        <!-- Estadísticas -->
+                        <div class="grid grid-cols-2 gap-4 text-left">
+                            <div class="p-3 bg-slate-800 rounded-lg">
+                                <p class="text-sm text-gray-400">Puntos por Clic (PpC):</p>
+                                <p id="clicker-ppc" class="text-xl font-bold text-green-400">${clickerState.ppc.toLocaleString('es')}</p>
+                            </div>
+                            <div class="p-3 bg-slate-800 rounded-lg">
+                                <p class="text-sm text-gray-400">Puntos por Segundo (APS):</p>
+                                <p id="clicker-aps" class="text-xl font-bold text-blue-400">${clickerState.aps.toLocaleString('es')}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Panel de Mejoras -->
+                    <div class="lg:col-span-2 p-4">
+                        <h3 class="text-2xl font-bold mb-4 text-indigo-300 border-b border-slate-600 pb-2">Mejoras Disponibles</h3>
+                        <div id="clicker-upgrade-list" class="space-y-4">
+                            <!-- Las mejoras se renderizan aquí por JS -->
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // =======================================================
+        // Inicialización
+        // =======================================================
+        window.onload = () => switchGame(currentGame);
+    </script>
+</body>
+</html>
